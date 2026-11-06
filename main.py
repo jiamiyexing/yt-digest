@@ -7,7 +7,7 @@ import requests
 from openai import OpenAI
 
 # ================= ⚠️ 务必修改这里 =================
-# 把下面的 "https://www.youtube.com/@频道Handle/videos" 换成你要追的博主
+# 把下面的 "https://www.youtube.com/@BTC-ouyang/videos" 换成你要追的博主
 CHANNEL_URL = "https://www.youtube.com/@频道Handle/videos" 
 N_RECENT = 5 
 SEEN_FILE = "seen.json"
