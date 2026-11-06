@@ -3,29 +3,43 @@ import json
 import subprocess
 import glob
 import re
-import random
 import requests
 from openai import OpenAI
 
 # ================= 配置区域 =================
-# 1. 替换为你关注的博主频道地址
-CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" 
-# 2. 每次检查最新的几条视频（防止漏发或置顶卡死）
+CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" # ⚠️ 记得换成你的博主
 N_RECENT = 5 
 SEEN_FILE = "seen.json"
 # ============================================
 
-def get_proxy():
-    raw = os.environ.get("YT_PROXY", "")
-    proxies = [p.strip() for p in raw.split(",") if p.strip()]
-    return random.choice(proxies) if proxies else None
+def generate_cookies_file():
+    raw_cookie = os.environ.get("YOUTUBE_COOKIES_RAW", "").strip()
+    if not raw_cookie:
+        print("未找到 YOUTUBE_COOKIES_RAW，跳过生成 cookies.txt")
+        return
+    
+    # 兼容你直接从浏览器粘贴的多行格式
+    if "# Netscape" in raw_cookie or "\t" in raw_cookie:
+        # 已经是标准的 Netscape 多行格式，直接写入
+        with open("cookies.txt", "w", encoding="utf-8") as f:
+            f.write(raw_cookie)
+    else:
+        # 兼容单行分号格式 (a=b; c=d)
+        if raw_cookie.lower().startswith("cookie:"):
+            raw_cookie = raw_cookie[7:].strip()
+        
+        lines = ["# Netscape HTTP Cookie File"]
+        for item in raw_cookie.split(";"):
+            if "=" in item:
+                name, value = item.strip().split("=", 1)
+                lines.append(f".youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}")
+        with open("cookies.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+            
+    print("成功生成 cookies.txt 文件")
 
 def get_recent_videos():
-    cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|%(title)s", CHANNEL_URL]
-    proxy = get_proxy()
-    if proxy:
-        cmd += ["--proxy", proxy]
-        
+    cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|%(title)s", "--cookies", "cookies.txt", CHANNEL_URL]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     videos = []
     for line in result.stdout.strip().splitlines()[:N_RECENT]:
@@ -37,25 +51,18 @@ def get_transcript(video_id: str) -> str:
     cmd = [
         "yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
         "--sub-langs", "zh-Hans,zh,en", "--sub-format", "vtt",
+        "--cookies", "cookies.txt",
         "-o", f"/tmp/{video_id}.%(ext)s",
         f"https://www.youtube.com/watch?v={video_id}",
     ]
-    proxy = get_proxy()
-    if proxy:
-        cmd += ["--proxy", proxy]
-
     subprocess.run(cmd, check=True, capture_output=True, text=True)
-
     files = sorted(glob.glob(f"/tmp/{video_id}*.vtt"))
     if not files:
         raise RuntimeError(f"{video_id} 未生成字幕文件")
-
     lines = []
     for line in open(files[0], encoding="utf-8"):
         line = line.strip()
-        if not line or line.startswith("WEBVTT") or "-->" in line:
-            continue
-        if line.startswith(("Kind:", "Language:", "NOTE")):
+        if not line or line.startswith("WEBVTT") or "-->" in line or line.startswith(("Kind:", "Language:", "NOTE")):
             continue
         line = re.sub(r"<[^>]+>", "", line)
         if line and (not lines or lines[-1] != line):
@@ -63,10 +70,7 @@ def get_transcript(video_id: str) -> str:
     return " ".join(lines)
 
 def summarize(text: str) -> str:
-    client = OpenAI(
-        api_key=os.environ["DEEPSEEK_API_KEY"],
-        base_url="https://api.deepseek.com",
-    )
+    client = OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
     response = client.chat.completions.create(
         model="deepseek-chat",
         messages=[
@@ -80,30 +84,23 @@ def summarize(text: str) -> str:
 def push_wechat(title: str, content: str):
     resp = requests.post(
         "https://www.pushplus.plus/send",
-        json={
-            "token": os.environ["PUSHPLUS_TOKEN"],
-            "title": title,
-            "content": content,
-            "template": "markdown",
-        },
+        json={"token": os.environ["PUSHPLUS_TOKEN"], "title": title, "content": content, "template": "markdown"},
         timeout=30,
     )
     resp.raise_for_status()
 
 def load_seen():
     if os.path.exists(SEEN_FILE):
-        with open(SEEN_FILE) as f:
-            return set(json.load(f))
+        with open(SEEN_FILE) as f: return set(json.load(f))
     return set()
 
 def save_seen(seen):
-    with open(SEEN_FILE, "w") as f:
-        json.dump(sorted(seen), f)
+    with open(SEEN_FILE, "w") as f: json.dump(sorted(seen), f)
 
 def main():
+    generate_cookies_file()
     seen = load_seen()
     processed = 0
-    
     try:
         videos = get_recent_videos()
     except Exception as e:
@@ -111,14 +108,12 @@ def main():
         return
 
     for video_id, title in videos:
-        if video_id in seen:
-            continue
+        if video_id in seen: continue
         try:
             print(f"正在处理新视频: {title} ({video_id})")
             transcript = get_transcript(video_id)
             summary = summarize(transcript)
             push_wechat(f"新视频：{title}", summary)
-            
             seen.add(video_id)
             save_seen(seen)
             processed += 1
