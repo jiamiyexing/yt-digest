@@ -24,11 +24,15 @@ jobs:
           pip install --force-reinstall https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz
           pip install openai requests
 
+      # 核心新增：在云端启动一个专门生成 PO Token 的本地服务
+      - name: Start bgutil-provider
+        run: |
+          docker run --name bgutil-provider -d --init -p 127.0.0.1:4416:4416 brainicism/bgutil-ytdlp-pot-provider
+
       - name: Run digest
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          # 注意看下面这行，确保它准确传递了
           YOUTUBE_COOKIES_RAW: ${{ secrets.YOUTUBE_COOKIES_RAW }} 
         run: python main.py
 
