@@ -7,7 +7,7 @@ import requests
 from openai import OpenAI
 
 # ================= 配置区域 =================
-CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" # ⚠️ 记得换成你的博主
+CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" # ⚠️ 确保这里改了频道
 N_RECENT = 5 
 SEEN_FILE = "seen.json"
 # ============================================
@@ -18,16 +18,12 @@ def generate_cookies_file():
         print("未找到 YOUTUBE_COOKIES_RAW，跳过生成 cookies.txt")
         return
     
-    # 兼容你直接从浏览器粘贴的多行格式
     if "# Netscape" in raw_cookie or "\t" in raw_cookie:
-        # 已经是标准的 Netscape 多行格式，直接写入
         with open("cookies.txt", "w", encoding="utf-8") as f:
             f.write(raw_cookie)
     else:
-        # 兼容单行分号格式 (a=b; c=d)
         if raw_cookie.lower().startswith("cookie:"):
             raw_cookie = raw_cookie[7:].strip()
-        
         lines = ["# Netscape HTTP Cookie File"]
         for item in raw_cookie.split(";"):
             if "=" in item:
@@ -35,11 +31,16 @@ def generate_cookies_file():
                 lines.append(f".youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}")
         with open("cookies.txt", "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
-            
     print("成功生成 cookies.txt 文件")
 
 def get_recent_videos():
-    cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|%(title)s", "--cookies", "cookies.txt", CHANNEL_URL]
+    # 增加了解析客户端参数，绕过云端 IP 风控
+    cmd = [
+        "yt-dlp", "--flat-playlist", "--print", "%(id)s|%(title)s", 
+        "--cookies", "cookies.txt", 
+        "--extractor-args", "youtube:player_client=web_safari,web_embedded",
+        CHANNEL_URL
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     videos = []
     for line in result.stdout.strip().splitlines()[:N_RECENT]:
@@ -52,13 +53,22 @@ def get_transcript(video_id: str) -> str:
         "yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
         "--sub-langs", "zh-Hans,zh,en", "--sub-format", "vtt",
         "--cookies", "cookies.txt",
+        "--extractor-args", "youtube:player_client=web_safari,web_embedded", # 强制使用网页客户端
         "-o", f"/tmp/{video_id}.%(ext)s",
         f"https://www.youtube.com/watch?v={video_id}",
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    
+    # 关键修改：捕获并打印详细报错，不再直接被吞掉
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"--- yt-dlp 报错详情 ---")
+        print(result.stderr)
+        print(f"-----------------------")
+        raise RuntimeError(f"yt-dlp 失败")
+
     files = sorted(glob.glob(f"/tmp/{video_id}*.vtt"))
     if not files:
-        raise RuntimeError(f"{video_id} 未生成字幕文件")
+        raise RuntimeError(f"{video_id} 未生成字幕文件（可能该视频真的没字幕）")
     lines = []
     for line in open(files[0], encoding="utf-8"):
         line = line.strip()
@@ -117,8 +127,9 @@ def main():
             seen.add(video_id)
             save_seen(seen)
             processed += 1
+            print(f"✅ 成功推送: {title}")
         except Exception as e:
-            print(f"处理视频 {video_id} 时出错: {e}")
+            print(f"❌ 处理视频 {video_id} 时出错: {e}")
             continue
 
     if processed == 0:
