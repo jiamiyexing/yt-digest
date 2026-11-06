@@ -7,7 +7,7 @@ import requests
 from openai import OpenAI
 
 # ================= 配置区域 =================
-CHANNEL_URL = "https://www.youtube.com/@频道Handle/videos" # ⚠️ 确保这里改了频道
+CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" # ⚠️ 确保这里改了频道
 N_RECENT = 5 
 SEEN_FILE = "seen.json"
 # ============================================
