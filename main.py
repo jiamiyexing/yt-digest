@@ -7,7 +7,7 @@ import requests
 from openai import OpenAI
 
 # ================= 配置区域 =================
-CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" # ⚠️ 确保这里改了频道
+CHANNEL_URL = "https://www.youtube.com/@频道Handle/videos" # ⚠️ 确保这里改了频道
 N_RECENT = 5 
 SEEN_FILE = "seen.json"
 # ============================================
@@ -34,11 +34,11 @@ def generate_cookies_file():
     print("成功生成 cookies.txt 文件")
 
 def get_recent_videos():
-    # 增加了解析客户端参数，绕过云端 IP 风控
+    # 添加 PO Token 参数
     cmd = [
         "yt-dlp", "--flat-playlist", "--print", "%(id)s|%(title)s", 
         "--cookies", "cookies.txt", 
-        "--extractor-args", "youtube:player_client=web_safari,web_embedded",
+        "--extractor-args", "youtube:fetch_pot=always",
         CHANNEL_URL
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -49,16 +49,16 @@ def get_recent_videos():
     return videos
 
 def get_transcript(video_id: str) -> str:
+    # 核心修改：让 yt-dlp 强制去本地生成的 PO Token 服务拿通行证
     cmd = [
         "yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
         "--sub-langs", "zh-Hans,zh,en", "--sub-format", "vtt",
         "--cookies", "cookies.txt",
-        "--extractor-args", "youtube:player_client=web_safari,web_embedded", # 强制使用网页客户端
+        "--extractor-args", "youtube:fetch_pot=always", # 关键点：强制获取防机器人 Token
         "-o", f"/tmp/{video_id}.%(ext)s",
         f"https://www.youtube.com/watch?v={video_id}",
     ]
     
-    # 关键修改：捕获并打印详细报错，不再直接被吞掉
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"--- yt-dlp 报错详情 ---")
