@@ -6,11 +6,12 @@ import re
 import requests
 from openai import OpenAI
 
-# ================= 配置区域 =================
-CHANNEL_URL = "https://www.youtube.com/@BTC-ouyang/videos" # ⚠️ 确保这里改了频道
+# ================= ⚠️ 务必修改这里 =================
+# 把下面的 "https://www.youtube.com/@频道Handle/videos" 换成你要追的博主
+CHANNEL_URL = "https://www.youtube.com/@频道Handle/videos" 
 N_RECENT = 5 
 SEEN_FILE = "seen.json"
-# ============================================
+# ====================================================
 
 def generate_cookies_file():
     raw_cookie = os.environ.get("YOUTUBE_COOKIES_RAW", "").strip()
@@ -34,10 +35,11 @@ def generate_cookies_file():
     print("成功生成 cookies.txt 文件")
 
 def get_recent_videos():
-    # 添加 PO Token 参数
     cmd = [
         "yt-dlp", "--flat-playlist", "--print", "%(id)s|%(title)s", 
         "--cookies", "cookies.txt", 
+        # 强制使用 web 客户端并配合 deno 和 pot
+        "--extractor-args", "youtube:player_client=web,deno",
         "--extractor-args", "youtube:fetch_pot=always",
         CHANNEL_URL
     ]
@@ -49,12 +51,12 @@ def get_recent_videos():
     return videos
 
 def get_transcript(video_id: str) -> str:
-    # 核心修改：让 yt-dlp 强制去本地生成的 PO Token 服务拿通行证
     cmd = [
         "yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
         "--sub-langs", "zh-Hans,zh,en", "--sub-format", "vtt",
         "--cookies", "cookies.txt",
-        "--extractor-args", "youtube:fetch_pot=always", # 关键点：强制获取防机器人 Token
+        "--extractor-args", "youtube:player_client=web,deno",
+        "--extractor-args", "youtube:fetch_pot=always",
         "-o", f"/tmp/{video_id}.%(ext)s",
         f"https://www.youtube.com/watch?v={video_id}",
     ]
